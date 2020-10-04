@@ -464,7 +464,7 @@ function updatePlayer(){
 	if (data.player.thrusting){
 		data.player.dx += Math.sin(data.player.rot)/100;
 		data.player.dy -= Math.cos(data.player.rot)/100;
-		if (data.sfx) zzfx(...[0.1,,1848,.02,.01,.07,4,.77,6.3,,,,-0.01,.1,-0.2,-0.1,,.25,.01,3000]); // Random 788 - Mutation 1
+		if (data.sfx) zzfx(...[0.1,,1848,.02,.01,.07,4,.77,6.3,,,,-0.01,.1,-0.2,-0.1,,.25,.01,8000]); // Random 788 - Mutation 1
 	}
 	data.player.x += data.player.dx;
 	data.player.y += data.player.dy;
@@ -618,7 +618,7 @@ function handleCollision(){
 			incrementTimer(o.time);
 			data.score++;
 			o.cull = true;
-			if (data.sfx && !data.warping) zzfx(...[,,1601,,.06,.13,,.49,,,422,.04,.03,,,,,.56,.01,5000]); // Pickup 695
+			if (data.sfx && !data.warping) zzfx(...[,,1601,,.06,.13,,.49,,,422,.04,.03,,,,,.56,.01,8000]); // Pickup 695
 			if (data.score === data.totalGameObjects){
 				//a winner is you
 				data.gameState = "victory";
