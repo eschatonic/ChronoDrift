@@ -1,0 +1,791 @@
+<html>
+<head>
+	<title>Chrono Drift - @dhmstark</title>
+	<meta charset="utf8" />
+	<style>
+	body{display:flex;justify-content:center;align-items:center;background-color:#111}
+	</style>
+	<link href="https://fonts.googleapis.com/css2?family=Orbitron&display=swap" rel="stylesheet">
+	<!-- Global site tag (gtag.js) - Google Analytics -->
+	<script async src="https://www.googletagmanager.com/gtag/js?id=UA-88096527-1"></script>
+	<script>
+	  window.dataLayer = window.dataLayer || [];
+	  function gtag(){dataLayer.push(arguments);}
+	  gtag('js', new Date());
+
+	  gtag('config', 'UA-88096527-1');
+	</script>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+var tau = Math.PI*2;
+var data = {
+	INTERVAL:1000/60,
+	fps:[],
+	fpsFrameAverage:10,
+	lastTime:(new Date()).getTime(),
+	difficulty:1,
+	emoji:true,
+	music:false,
+	sfx:true,
+	previousState:"title",
+	gameState:"title",	
+	loopMax:[20,15,10],
+	timer:0,
+	warpFrames:10,
+	warping:0,
+	intro:0,
+	keys:[],
+	UIparticles:[],
+	stars:[],
+	gameObjects:[],
+	totalGameObjects:100,
+	score:0,
+	cycles:0,
+	titleOptionSelected:0,
+	menuOptionSelected:0,
+	tutorial:{
+		keys:[],
+	},
+	debug:false,
+};
+
+function setPlayerData(){
+	data.player = {
+		x:0,
+		y:0,
+		dx:0,
+		dy:0,
+		rot:0,
+		drot:0,
+		thrusting:false,
+	}
+}
+
+function setup(){
+	window.canvas = document.getElementById("canvas")
+	window.ctx = canvas.getContext("2d");
+	canvas.width = 800;
+	canvas.height = 600;
+	ctx.font = "24px 'Orbitron', arial";
+	ctx.lineWidth = 3;
+	ctx.strokeFillText = function(text,x,y){
+		ctx.strokeText(text,x,y);
+		ctx.fillText(text,x,y);
+	}
+	
+	resetTimer();
+	
+	var starDist = 8000;
+	for (var i=0;i<500;i++){
+		data.stars.push({
+			x:randBias(2)*starDist - starDist/2,
+			y:randBias(2)*starDist - starDist/2,
+			w:Math.random(),
+			draw:function(){
+				ctx.fillStyle = "white";
+				ctx.fillRect(this.x,this.y,2,2);
+			}
+		})
+	}
+	
+	resetGameObjects();
+	
+	gameLoop();
+	document.body.onkeydown = function(evt){
+		if (!evt.repeat){
+			data.keys[evt.code] = true;
+			handleKeyPress(evt);
+		}
+	}
+	document.body.onkeyup = function(evt){
+		data.keys[evt.code] = false;
+	}
+}
+
+function resetGameObjects(){
+	var objDistX = canvas.width// * 2;
+	var objDistY = canvas.height// * 2;
+	data.gameObjects = [];
+	for (var i=0;i<data.totalGameObjects;i++){
+		var objType = chooseRandom([
+			{ time: 1, fillStyle: "lightblue", em:"🔩" },
+			{ time: 1, fillStyle: "lightblue", em:"⏲" },
+			{ time: 1, fillStyle: "lightblue", em:"📡" },
+			{ time: 2, fillStyle: "yellow", em:"💽" },
+			{ time: 2, fillStyle: "yellow", em:"🎇" },
+			{ time: 3, fillStyle: "limegreen", em:"📟" },
+			{ time: 3, fillStyle: "limegreen", em:"🔋" },
+		])
+		data.gameObjects.push({
+			x:randBias(2)*objDistX - objDistX/2,
+			y:randBias(2)*objDistY - objDistY/2,
+			rot:Math.random()*tau,
+			drot:(Math.random()*tau-tau/2)/2400,
+			time:objType.time,
+			fillStyle:objType.fillStyle,
+			em:objType.em,
+			draw:function(){
+				ctx.fillStyle = data.emoji ? "grey" : this.fillStyle;
+				ctx.save()
+				ctx.translate(this.x,this.y);
+				ctx.rotate(this.rot);
+				ctx.fillRect(-10,-10,20,20);
+				if (data.emoji){
+					ctx.fillStyle = "black";
+					ctx.font = "16px 'Orbitron', arial";
+					ctx.textAlign = "center";
+					ctx.fillText(this.em,0,6);
+				}
+				ctx.restore();
+			}
+		});
+	}
+}
+
+function randBias(r){
+	var ret = 0;
+	for (var i=0;i<r;i++) ret += Math.random();
+	return ret/r;
+}
+function chooseRandom(arr){
+	return arr[Math.floor(Math.random()*arr.length)];
+}
+
+function gameLoop(){
+	window.requestAnimationFrame(gameLoop);
+    var currentTime = (new Date()).getTime();
+    var delta = currentTime - data.lastTime;
+    if (delta > data.INTERVAL) {
+	
+		handleGameState()
+	
+		data.fps.unshift(1000/delta)
+		if (data.fps.length > data.fpsFrameAverage) data.fps.pop();
+		data.lastTime = currentTime - (delta % data.INTERVAL);
+	}
+}
+function handleGameState(){
+	switch (data.gameState){
+		case "title":
+			handleControls();
+			clear();
+			drawTitle();
+			break;
+			
+		case "menu":
+			clear();
+			drawMenu();
+			break;
+			
+		case "tutorial":
+		case "tutorial2":
+			handleControls();
+			updatePlayer();
+			clear();
+			ctx.save();
+			ctx.translate(canvas.width/2,canvas.height/2);
+			ctx.rotate(data.player.rot*-1);
+				drawBackground();
+				drawPlayer();
+			ctx.restore();
+			drawTutorialUI();
+			break;
+			
+		case "intro":
+			updateIntro();
+			clear();
+			drawIntro();
+			break;
+		case "game":
+			cull();
+			updateGameObjects();
+			handleCollision();
+			updateUIParticles();
+			if (!data.warping){
+				handleControls();
+				updatePlayer();
+				updateTimer();
+			}
+			clear();
+			ctx.save();
+			ctx.translate(canvas.width/2,canvas.height/2);
+			ctx.rotate(data.player.rot*-1);
+				drawBackground();
+				drawGameObjects();
+				drawPlayer();
+			ctx.restore();
+			drawUI();
+			if (data.warping){
+				drawWarp();
+				data.warping--;
+			}
+			break;
+		
+		case "victory":
+		case "victory1":
+		case "victory2":
+		case "victory3":
+			clear();
+			drawEndScreen();
+	}
+}
+
+function updateIntro(){
+	data.intro++;
+	if (data.intro > 60){
+		if (data.sfx) zzfx(...[,,926,,.4,1.47,4,3.56,.8,1,,,,.9,-0.3,.5,,.64,.03]); // Explosion 791
+		resetTimer();
+		data.intro = 0;
+		data.gameState = "game";
+	}
+}
+function drawIntro(){
+	ctx.fillStyle = "white";
+	ctx.textAlign = "center";
+	ctx.font = "36px 'Orbitron', arial";
+	if (Math.floor(data.lastTime/200)%2) ctx.fillText("FLUX CAPACITOR OVERLOADING", canvas.width/2, canvas.height/2);
+}
+
+
+function drawTitle(){
+	var gradient = ctx.createLinearGradient(0,0,canvas.width,0)
+	gradient.addColorStop(0,"red")
+	gradient.addColorStop(0.3,"white")
+	gradient.addColorStop(0.7,"white")
+	gradient.addColorStop(1,"blue")
+	ctx.fillStyle = gradient;
+	ctx.textAlign = "center";
+	ctx.font = "72px 'Orbitron', arial";
+	ctx.fillText("CHRONO DRIFT", canvas.width/2, canvas.height/3)
+	
+	ctx.fillStyle = "white";
+	ctx.font = "40px 'Orbitron', arial";
+	ctx.fillText("Katherine Stark", canvas.width/2, canvas.height/2 - 40);
+	ctx.font = "24px 'Orbitron', arial";
+	ctx.fillText("Ludum Dare 47", canvas.width/2, canvas.height/2);
+	
+	ctx.font = "36px 'Orbitron', arial";
+	ctx.fillText("Tutorial", canvas.width/2, canvas.height*3/4 - 50);
+	ctx.fillText("New Game", canvas.width/2, canvas.height*3/4);
+	ctx.fillText("Options", canvas.width/2, canvas.height*3/4 + 50);
+	
+	ctx.strokeStyle = "white";
+	ctx.strokeRect(200,canvas.height*3/4 - 88 + 51*data.titleOptionSelected, canvas.width-400, 50);
+}
+function drawEndScreen(){
+	ctx.fillStyle = "white";
+	ctx.textAlign = "left";
+	ctx.font = "24px courier";
+	var text = []
+	var text0 = [
+		"FLUX CAPACITOR REASSEMBLED",
+		"CHRONAL FIELD COLLAPSES DETECTED: " + data.cycles,
+		"AWAITING ACTIVATION COMMAND",
+		"> activate"
+	]
+	var text1 = [
+		"ACTIVATION SUCCESSFUL",
+		"CHRONAL FIELD STABILISED",
+		"> continue"
+	]
+	var text2 = [
+		"CAUTION: FLUX LEVELS EXCEEDING SAFE LIMITS",
+		"CHRONAL FIELD UNSTABLE - IMMINENT COLLAPSE",
+		"> abort"
+	]
+	var text3 = [
+		"WARNING: ABORT WILL DAMAGE FLUX CAPACITOR",
+		"PLEASE CONFIRM PRIOR COMMAND",
+		"> confirm"
+	]
+	switch (data.gameState){
+		case "victory":
+			text = text0;
+			break;
+		case "victory1":
+			text = [...text0,...text1]
+			break;
+		case "victory2":
+			text = [...text0,...text2]
+			break;
+		case "victory3":
+			text = [...text0,...text2,...text3]
+	}
+	for (var i=0;i<text.length;i++){
+		var t = (i === text.length-1 && Math.floor(data.lastTime/500)%2) ? text[i] + "█" : text[i];
+		ctx.fillText(t, 80, 80 + i*50);
+	}
+}
+
+
+function drawMenu(){
+	ctx.fillStyle = "white";
+	ctx.font = "40px 'Orbitron', courier"
+	ctx.textAlign = "center";
+	ctx.fillText("Options",canvas.width/2,100)
+	
+	ctx.font = "32px 'Orbitron', courier"
+	ctx.textAlign = "left";
+	ctx.fillStyle = "grey";
+	ctx.fillText("Music",100,200)
+	ctx.fillStyle = "white";
+	ctx.fillText("SFX",100,250)
+	ctx.fillText("Components",100,300)
+	ctx.fillText("Debug UI",100,350)
+	ctx.fillText("Difficulty",100,400)
+	
+	ctx.textAlign = "right";
+	ctx.fillStyle = "grey";
+	ctx.fillText(data.music ? "On" : "Off",canvas.width-100,200)
+	ctx.fillStyle = "white";
+	ctx.fillText(data.sfx ? "On" : "Off",canvas.width-100,250)
+	ctx.fillText(data.emoji ? "Emoji" : "Colour",canvas.width-100,300)
+	ctx.fillText(data.debug ? "On" : "Off",canvas.width-100,350)
+	var diffText = [
+		["Easy", "More time to get things done"],
+		["Medium", "The standard difficulty"],
+		["Hard", "Less time to get things done"],
+	]
+	ctx.fillText(diffText[data.difficulty][0],canvas.width-100,400)
+	ctx.font = "24px 'Orbitron', courier"
+	ctx.fillText(diffText[data.difficulty][1],canvas.width-100,450)
+	
+	ctx.strokeStyle = "white";
+	ctx.strokeRect(75, 165+data.menuOptionSelected*50, canvas.width-150,48)
+	ctx.textAlign = "center";
+	if (menuLeft()){
+		ctx.fillText("<",50,197+data.menuOptionSelected*50)
+	}
+	if (menuRight()){
+		ctx.fillText(">",canvas.width-50,197+data.menuOptionSelected*50)
+	}
+	
+	ctx.font = "24px 'Orbitron', courier"
+	ctx.textAlign = "right";
+	ctx.fillText("[ESC]: Return", canvas.width-50,50)
+}
+function menuLeft(){
+	switch (data.menuOptionSelected){
+		case 0: return false //data.music;
+		case 1: return data.sfx;
+		case 2: return !data.emoji;
+		case 3: return data.debug;
+		case 4: return data.difficulty > 0;
+	}
+}
+function menuRight(){
+	switch (data.menuOptionSelected){
+		case 0: return false //!data.music;
+		case 1: return !data.sfx;
+		case 2: return data.emoji;
+		case 3: return !data.debug;
+		case 4: return data.difficulty < 2;
+	}
+}
+
+function drawTutorialUI(){
+	ctx.fillStyle = "white";
+	ctx.textAlign = "center";
+	ctx.font = "36px Orbitron, arial";
+	if (data.gameState === "tutorial"){
+		if (!data.tutorial.keys["ArrowUp"]){
+			drawKey(canvas.width/2, canvas.height/4 - 30,"↑")
+			ctx.fillText("Thrust", canvas.width/2, canvas.height/4+60)
+		}
+		if (!data.tutorial.keys["ArrowLeft"]){
+			drawKey(canvas.width/4, canvas.height/2 - 30,"←")
+			ctx.fillText("Left", canvas.width/4, canvas.height/2+60)
+		}
+		if (!data.tutorial.keys["ArrowRight"]){
+			drawKey(canvas.width*3/4, canvas.height/2 - 30,"→")
+			ctx.fillText("Right", canvas.width*3/4, canvas.height/2+60)
+		}
+		if (!data.tutorial.keys["Space"]){
+			drawKey(canvas.width/2, canvas.height*3/4 - 30,"␣")
+			ctx.fillText("Slow Rotation", canvas.width/2, canvas.height*3/4+60)
+		}
+	} else if (data.gameState === "tutorial2"){
+		drawKeyFrame(175,60,120, 80);
+		ctx.fillStyle = "white";
+		ctx.fillText("Esc    Toggle Options", canvas.width/2, 100)
+		
+		drawKeyFrame(280,460, 190, 80);
+		ctx.fillStyle = "white";
+		ctx.fillText("Press    Enter ⏎    To Begin", canvas.width/2, canvas.height - 100)
+	}
+}
+
+
+function updateTimer(){
+	data.timer -= 1/60;
+	if (data.timer <= 0){
+		data.cycles++;
+		resetTimer()
+	}
+}
+function resetTimer(){
+	data.timer = data.loopMax[data.difficulty];
+	setPlayerData();
+	data.warping = data.warpFrames + 0;
+}
+function incrementTimer(i){
+	data.timer += i;
+	if (data.timer > data.loopMax[data.difficulty]) data.timer = data.loopMax[data.difficulty];
+	data.UIparticles.push({
+		data: {
+			x: canvas.width-75,
+			y: 140,
+			life: 60,
+			text: i<0 ? ""+i : "+"+i
+		},
+		logic: function(instance){
+			if (instance.data.life > 0){
+				instance.data.y--;
+				instance.data.life--;
+			} else {
+				instance.cull = true;
+			}
+		},
+		draw: function(instance){
+			ctx.textAlign = "center";
+			ctx.strokeStyle = "black";
+			ctx.fillStyle = "rgba(255,255,255," + instance.data.life/60 + ")";
+			ctx.strokeFillText(instance.data.text,instance.data.x,instance.data.y)
+		}
+	});
+}
+
+function updateUIParticles(){
+	data.UIparticles.forEach(x => x.logic(x));
+}
+function updatePlayer(){
+	if (data.player.thrusting){
+		data.player.dx += Math.sin(data.player.rot)/100;
+		data.player.dy -= Math.cos(data.player.rot)/100;
+		if (data.sfx) zzfx(...[0.1,,1848,.02,.01,.07,4,.77,6.3,,,,-0.01,.1,-0.2,-0.1,,.25,.01,3000]); // Random 788 - Mutation 1
+	}
+	data.player.x += data.player.dx;
+	data.player.y += data.player.dy;
+	data.player.rot += data.player.drot;
+}
+
+function drawUIParticles(){
+	data.UIparticles.forEach(x => x.draw(x));
+}
+function cull(){
+	data.UIparticles = data.UIparticles.filter(x => !x.cull);
+	data.gameObjects = data.gameObjects.filter(x => !x.cull);
+}
+
+function clear(){
+	ctx.fillStyle = "black";
+	ctx.fillRect(0,0,canvas.width,canvas.height);
+}
+function drawWarp(){
+	ctx.fillStyle = "rgba(255,255,255," + data.warping/data.warpFrames + ")";
+	ctx.fillRect(0,0,canvas.width,canvas.height);
+}
+function drawBackground(){
+	data.stars.forEach(s => {
+		ctx.save();
+		ctx.translate(data.player.x*-1*s.w,data.player.y*-1*s.w);
+		s.draw()
+		ctx.restore();
+	});
+}
+function drawUI(){
+	ctx.font = "24px 'Orbitron', arial";
+	drawScore();
+	drawUIParticles();
+	drawTimer();
+	
+	if (data.debug){
+		ctx.textAlign = "left";
+		ctx.fillStyle = "white";
+		ctx.fillText("dY: " + data.player.dy.toFixed(2),20,canvas.height-50)
+		ctx.fillText("dX: " + data.player.dx.toFixed(2),20,canvas.height-80)
+		ctx.fillText("dRot: " + data.player.drot.toFixed(4),20,canvas.height-20)
+		ctx.textAlign = "right";
+		var fps = data.fps.reduce((a,b) => a+b)/data.fps.length;
+		ctx.fillText("fps: " + Math.round(fps),canvas.width-20,canvas.height-20);
+	}
+}
+function drawScore(){
+	ctx.fillStyle = "white";
+	ctx.strokeStyle = "black";
+	ctx.textAlign = "left";
+	ctx.strokeFillText("Components: " + data.score+"/"+data.totalGameObjects,50,62)
+}
+function drawTimer(){
+	var timerBlink = 5;
+	if (data.timer > timerBlink || (data.timer > timerBlink/2 && Math.floor(data.timer*10)%4) || Math.floor(data.timer*10)%2){
+		ctx.strokeStyle = "white";
+		ctx.fillStyle = "white";
+		if (data.timer < timerBlink) ctx.fillStyle = "yellow"
+		if (data.timer < timerBlink/2) ctx.fillStyle = "red"
+		ctx.save();
+		ctx.translate(canvas.width-75,75)
+		ctx.beginPath();
+		ctx.lineTo(0,-25)
+		ctx.arc(0,0,25,tau/-4,tau/-4 - tau*data.timer/data.loopMax[data.difficulty],true)
+		ctx.lineTo(0,0)
+		ctx.fill();
+		ctx.beginPath()
+		ctx.arc(0,0,25,0,tau)
+		ctx.stroke();
+		
+		ctx.font = "16px 'Orbitron', courier"
+		ctx.textAlign = "center";
+		ctx.strokeStyle = "black";
+		if (data.timer < timerBlink/2){
+			ctx.strokeFillText("CHRONAL",0,50);
+			ctx.strokeFillText("FIELD",0,65);
+			ctx.strokeFillText("CRITICAL",0,80);
+		} else if (data.timer < timerBlink){
+			ctx.strokeFillText("CHRONAL",0,50);
+			ctx.strokeFillText("FIELD",0,65);
+			ctx.strokeFillText("UNSTABLE",0,80);
+		}
+		
+		
+		ctx.restore();
+	} else {
+		if (data.sfx) zzfx(...[0.1,0,169,.01,,.09,,.38,,,,,,,,,,.06,.04]); // Blip 763
+	}
+}
+function drawPlayer(){
+	ctx.fillStyle = "black";
+	ctx.strokeStyle = "white"
+	ctx.save();
+	ctx.rotate(data.player.rot)
+	ctx.font = "36px 'Orbitron', arial";
+	ctx.textAlign = "center";
+	ctx.fillText("👩‍🚀",0,10);
+	if (data.player.thrusting){
+		ctx.fillStyle = "yellow";
+		ctx.beginPath();
+		ctx.moveTo(5,15)
+		ctx.lineTo(0,25)
+		ctx.lineTo(-5,15)
+		ctx.fill();
+	}
+	ctx.restore();
+	
+}
+
+function drawKey(x,y,text){
+	ctx.save();
+	ctx.translate(x,y);
+	if (text === "␣"){
+		drawKeyFrame(-100,-40,200,80)
+	} else {
+		drawKeyFrame(-40,-40,80,80)
+	}
+	ctx.fillStyle = "white";
+	ctx.textAlign = "center";
+	ctx.fillText(text,0,0)
+	ctx.restore();
+}
+function drawKeyFrame(x,y,dx,dy){
+	ctx.fillStyle = "#222";
+	ctx.strokeStyle = "white";
+	ctx.fillRect(x,y,dx,dy)
+	ctx.strokeRect(x,y,dx,dy)
+	ctx.strokeRect(x+10,y+5,dx-20,dy-25)
+}
+
+
+function updateGameObjects(){
+	data.gameObjects.forEach(o=>{
+		o.rot += o.drot;
+	})
+}
+function drawGameObjects(){
+	ctx.save();
+	ctx.translate(data.player.x*-1,data.player.y*-1);
+	data.gameObjects.forEach(o => {
+		o.draw()
+	})
+	ctx.restore();
+}
+function handleCollision(){
+	data.gameObjects.forEach(o => {
+		var dx = data.player.x - o.x;
+		var dy = data.player.y - o.y;
+		if (dx*dx+dy*dy < 30*30){
+			incrementTimer(o.time);
+			data.score++;
+			o.cull = true;
+			if (data.sfx && !data.warping) zzfx(...[,,1601,,.06,.13,,.49,,,422,.04,.03,,,,,.56,.01,5000]); // Pickup 695
+			if (data.score === data.totalGameObjects){
+				//a winner is you
+				data.gameState = "victory";
+				data.score = 0;
+			}
+		}
+	})
+}
+
+
+function handleControls(){
+	data.player.thrusting = false;
+	if (data.keys["ArrowUp"]){
+		data.player.thrusting = true;
+	}
+	if (data.keys["ArrowLeft"]){
+		data.player.drot -= tau/24000;
+		//data.player.rot -= tau/240;
+	}
+	if (data.keys["ArrowRight"]){
+		data.player.drot += tau/24000;
+		//data.player.rot += tau/240;
+	}
+	if (data.keys["Space"]){
+		data.player.drot *= 0.9;
+	}
+}
+function handleKeyPress(evt){
+	if (evt.code === "Escape"){
+		if (data.gameState === "menu"){
+			data.gameState = data.previousState;
+		} else {
+			data.previousState = data.gameState + "";
+			data.gameState = "menu";
+		}
+	}
+	switch (data.gameState){
+		case "title":
+			switch (evt.code){
+				case "ArrowUp":
+					data.titleOptionSelected--;
+					if (data.titleOptionSelected < 0) data.titleOptionSelected = 0
+					break;
+				case "ArrowDown":
+					data.titleOptionSelected++;
+					if (data.titleOptionSelected > 2) data.titleOptionSelected = 2
+					break;
+				case "Enter":
+				case "NumpadEnter":
+					data.gameState = ["tutorial","intro","menu"][data.titleOptionSelected];
+			}
+			break;
+		case "menu":
+			switch (evt.code){
+				case "ArrowDown":
+					data.menuOptionSelected++;
+					if (data.menuOptionSelected > 4) data.menuOptionSelected = 4;
+					break;
+				case "ArrowUp":
+					data.menuOptionSelected--;
+					if (data.menuOptionSelected < 0) data.menuOptionSelected = 0;
+					break;
+				case "ArrowLeft":
+					if (menuLeft()){
+						switch (data.menuOptionSelected){
+							case 0: data.music = !data.music;
+								break;
+							case 1: data.sfx = !data.sfx;
+								break;
+							case 2: data.emoji = !data.emoji;
+								break;
+							case 3: data.debug = !data.debug;
+								break;
+							case 4: data.difficulty--;
+								break;
+						}
+					}
+					break;
+				case "ArrowRight":
+					if (menuRight()){
+						switch (data.menuOptionSelected){
+							case 0: data.music = !data.music;
+								break;
+							case 1: data.sfx = !data.sfx;
+								break;
+							case 2: data.emoji = !data.emoji;
+								break;
+							case 3: data.debug = !data.debug;
+								break;
+							case 4: data.difficulty++;
+								break;
+						}
+					}
+					break;
+			}
+			break;
+		case "tutorial":
+			//key handling for the tutorial
+			switch (evt.code){
+				case "ArrowUp": data.tutorial.keys["ArrowUp"] = true; break;
+				case "ArrowLeft": data.tutorial.keys["ArrowLeft"] = true; break;
+				case "ArrowRight": data.tutorial.keys["ArrowRight"] = true; break;
+				case "Space": data.tutorial.keys["Space"] = true; break;
+			}
+			if (data.tutorial.keys["ArrowUp"] && data.tutorial.keys["ArrowLeft"] && data.tutorial.keys["ArrowRight"] && data.tutorial.keys["Space"]){
+				data.gameState = "tutorial2";
+			}
+			break;
+		case "tutorial2":
+			if (evt.code === "Enter" ||
+				evt.code === "NumpadEnter"){
+				data.tutorial.keys = [],
+				data.gameState = "intro"
+				data.cycles = 0;
+				resetTimer();
+			}
+			break;
+		case "victory":
+			if (evt.code === "Enter" || evt.code === "NumpadEnter"){
+				data.gameState = data.cycles ? "victory2" : "victory1";
+			}
+			break;
+		case "victory1":
+			if (evt.code === "Enter" || evt.code === "NumpadEnter"){
+				resetGameObjects();
+				data.cycles = 0;
+				resetTimer();
+				data.gameState = "title";
+			}
+			break;
+		case "victory2":
+			if (evt.code === "Enter" || evt.code === "NumpadEnter") data.gameState = "victory3";
+			break;
+		case "victory3":
+			if (evt.code === "Enter" || evt.code === "NumpadEnter"){
+				resetGameObjects();
+				data.cycles = 0;
+				resetTimer();
+				data.gameState = "intro";
+			}
+	}
+	return false;
+}
+
+
+
+
+
+
+
+// ZzFX - Zuper Zmall Zound Zynth - Micro Edition
+// MIT License - Copyright 2019 Frank Force
+// https://github.com/KilledByAPixel/ZzFX
+
+// This is a tiny build of zzfx with only a zzfx function to play sounds.
+// You can use zzfxV to set volume.
+// There is a small bit of optional code to improve compatibility.
+// Feel free to minify it further for your own needs!
+
+'use strict';let zzfx,zzfxV,zzfxX
+
+// ZzFXMicro - Zuper Zmall Zound Zynth 
+zzfxV=.3 // volume
+zzfx=    // play sound
+(t=1,a=.05,n=220,e=0,f=0,h=.1,M=0,r=1,z=0,o=0,i=0,s=0,u=0,x=0,c=0,d=0,X=0,b=1,m=0,l=44100,B=99+e*l,C=f*l,P=h*l,g=m*l,w=X*l,A=2*Math.PI,D=(t=>0<t?1:-1),I=B+g+C+P+w,S=(z*=500*A/l**2),V=(n*=(1+2*a*Math.random()-a)*A/l),j=D(c)*A/4,k=0,p=0,q=0,v=0,y=0,E=0,F=1,G=[],H=zzfxX.createBufferSource(),J=zzfxX.createBuffer(1,I,l))=>{for(H.connect(zzfxX.destination);q<I;G[q++]=E)++y>100*d&&(y=0,E=k*n*Math.sin(p*c*A/l-j),E=D(E=M?1<M?2<M?3<M?Math.sin((E%A)**3):Math.max(Math.min(Math.tan(E),1),-1):1-(2*E/A%2+2)%2:1-4*Math.abs(Math.round(E/A)-E/A):Math.sin(E))*Math.abs(E)**r*t*zzfxV*(q<B?q/B:q<B+g?1-(q-B)/g*(1-b):q<B+g+C?b:q<I-w?(I-q-w)/P*b:0),E=w?E/2+(w>q?0:(q<I-w?1:(q-I)/w)*G[q-w|0]/2):E),k+=1-x+1e9*(Math.sin(q)+1)%2*x,p+=1-x+1e9*(Math.sin(q)**2+1)%2*x,n+=z+=500*o*A/l**3,F&&++F>s*l&&(n+=i*A/l,V+=i*A/l,F=0),u&&++v>u*l&&(n=V,z=S,v=1,F=F||1);return J.getChannelData(0).set(G),H.buffer=J,H.start(),H},zzfxX=new(window.AudioContext||webkitAudioContext)
+
+setup();
+</script>
+</body>
+</html>
